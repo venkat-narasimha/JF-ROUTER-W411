@@ -1,14 +1,14 @@
-#script act as proxy for firmd
+#!/bin/sh
+# Firmware upgrade proxy for firmd — POSIX shell compatible.
 # Created by: Naitik
 # Date: 2025-05-24
-#
 
 # Store the current time in the format YYYYMMDD_HHMMSS
 current_time=$(date +"%Y%m%d_%H%M%S")
 
 # Check if firmd.log exists; if not, create it
 log_file="/flash2/firmd/firmd.log"
-if [[ ! -f "$log_file" ]]; then
+if [ ! -f "$log_file" ]; then
     mkdir -p /flash2/firmd/
     touch "$log_file"
 fi
@@ -19,8 +19,7 @@ echo "$current_time - Arguments: $*" >> "$log_file"
 echo "Environment Variables:" >> "$log_file"
 env >> "$log_file"
 echo "--- End Environment Variables ---" >> "$log_file"
-# Add a new line at the end for readability
-echo "" >> "$log_file" 
+echo "" >> "$log_file"
 
 # Create a folder with the current time as the folder name
 # and copy all /tmp/tr69* files into it
@@ -29,15 +28,22 @@ mkdir -p "$new_folder"
 cp /tmp/tr69* "$new_folder" 2>/dev/null
 
 # Check for "-f" argument and copy specified file to our folder if provided
-for i in "$@"; do
-    if [[ "$i" == "-f" ]]; then
-        # Get the argument following "-f" as the file location
-        file_location="$2"
-        if [[ -f "$file_location" ]]; then
-            cp "$file_location" "$new_folder"
-        else
-            echo "File not found: $file_location" >> "$log_file"
-        fi
-        break
-    fi
+# POSIX-compliant argument parsing: consume the next argument after -f
+set -- "$@"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -f)
+            shift
+            if [ $# -gt 0 ]; then
+                file_location="$1"
+                if [ -f "$file_location" ]; then
+                    cp "$file_location" "$new_folder"
+                else
+                    echo "File not found: $file_location" >> "$log_file"
+                fi
+            fi
+            break
+            ;;
+    esac
+    shift
 done
