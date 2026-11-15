@@ -39,8 +39,5 @@ Thumbs.db
 *.backup
 *.orig
 
-# .agents 
-.agents/
-
 # Local isolated worktrees
 .worktrees/
