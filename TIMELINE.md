@@ -252,28 +252,65 @@ The files are `repeater.sh`, `repeater.sh.oneshot.bak`, and
 `repeater.sh.apscan1.bak`. The repository ignores `artifacts/`, which is
 required because these scripts contain the upstream Wi-Fi credential.
 
+## 11. Decoupled Next-Gen Architecture & Web UI (Repeater-NG)
+
+To transition from brittle hardcoded shell scripts to a robust, user-configurable system, the repeater functionality was re-architected into a modular engine with a lightweight JSON configuration store, a Lua CGI backend, and a modern web dashboard.
+
+1. **Configuration Store Decoupling (`repeater_config.json`)**:
+   - Upstream Wi-Fi credentials, gateway IP, local AP settings, and watchdog parameters were separated into `/pfrm2.0/etc/repeater_config.json`.
+   - A shell environment exporter (`/pfrm2.0/bin/config_env.lua`) was developed to safely parse the JSON config and provide environment variables for the engine without shell injection vulnerabilities.
+   - **Confirmed result:** The decoupled engine (`repeater_engine.sh`) reads dynamic JSON config, discovers target BSSIDs via targeted scans, associates with the upstream AP, obtains DHCP (`192.168.1.11`), establishes NAT/iptables rules, and provides seamless internet access.
+
+2. **Lua 5.1 Compatibility & Pure Lua JSON Parser (`tiny_json.lua`)**:
+   - The stock TeamF1 vendor library (`/pfrm2.0/lib/lua/teamf1lualib/json.lua`) relied on Lua 5.2 `load()` behavior with string arguments, causing fatal runtime exceptions (`bad argument #1 to 'load' (function expected, got string)`) on the router's Lua 5.1 runtime.
+   - A standalone, dependency-free JSON encoder/decoder (`tiny_json.lua`) was written and deployed to `/pfrm2.0/bin/` and `/pfrm2.0/share/lua/5.1/`.
+
+3. **Broadcom Radio Allocation & AP Isolation**:
+   - **Hardware Constraint:** The JCOW411 contains two physical radios: `wl0` (2.4 GHz) and `wl1` (5 GHz). Testing proved that running `hostapd` or configuring local virtual BSS interfaces (`wl0.2`) on the 2.4 GHz radio destroys `wl0` station mode, breaking the upstream client link and causing self-association loopback.
+   - **Architectural Solution:** `wl0` is strictly reserved for the upstream station link. Local Wi-Fi AP broadcasting is exclusively assigned to `wl1` (5 GHz AC/N). Stale virtual AP interfaces (`wl0.1`, `wl0.2`, `wl1.1`, `wl1.2`) and stray 2.4 GHz `hostapd` instances are explicitly suppressed on boot and configuration changes.
+
+4. **Web Server & CGI Integration**:
+   - The router runs `lighttpd` with root docroot `/pfrm2.0/var/www` and CGI enabled in `/cgi-bin/`.
+   - Stock `lighttpd.conf` blocked `.html` files via `url.access-deny = ( "~", ".inc", ".html" )`. A non-destructive sed patch script removed `.html` from `url.access-deny`, enabling static web apps in `/pfrm2.0/var/www/custom/`.
+   - Because standard BusyBox on this build omitted the `printf` applet, CGI header wrappers were migrated to standard `echo` calls.
+   - Four REST-like CGI endpoints were deployed to `/pfrm2.0/var/www/cgi-bin/`:
+     - `api_status.cgi` / `api_status.lua`: Returns real-time upstream status (SSID, BSSID, RSSI, IP, gateway route reachability), 5 GHz AP configuration, saved profiles, and active connected clients.
+     - `api_scan.cgi` / `api_scan.lua`: Triggers `wl -i wl0 scan`, dynamically filters the router's own hardware MACs, and returns detected 2.4 GHz networks sorted by signal strength.
+     - `api_connect.cgi` / `api_connect.lua`: Validates inputs, persists credentials into `repeater_config.json`, and asynchronously spawns `repeater_engine.sh`.
+     - `api_ap_config.cgi` / `api_ap_config.lua`: Reconfigures `wl1` 5 GHz SSID, WPA2 passphrase, and broadcast visibility without disturbing `wl0`.
+
+5. **Single-Page Web Dashboard (`/custom/index.html`)**:
+   - A modern, mobile-responsive SPA was constructed using Tailwind CSS.
+   - Includes full-screen authentication gate (`admin` / `admin123`), dark/light theme toggle, and tabbed navigation:
+     - **Overview & Connected Devices**: Dual hardware status cards (2.4 GHz Upstream Client and 5 GHz Dedicated AP) and real-time client table.
+     - **Upstream Repeater Tab**: Two-column layout with spectrum survey scanner on the left and direct Wi-Fi credential input on the right.
+     - **Local Wi-Fi AP Tab**: Two-column layout with 5 GHz SSID/password configuration on the left and instant QR code generator for mobile phones on the right.
+   - **Web Crypto & Pure JS PBKDF2 Fallback**: Browsers restrict `window.crypto.subtle` on non-HTTPS origins (e.g. `http://192.168.29.1`). To generate the 64-character hex WPA PSK directly in the user's browser, a pure JS PBKDF2-SHA1 implementation was integrated, ensuring compatibility on both HTTP and HTTPS.
+
+6. **Active Device Classification & Filtering**:
+   - Initial device parsing suffered from reading historical DHCP leases from `/var/dhcpd.leases`, causing powered-off devices and upstream network ARP records (`192.168.1.1`) to appear as active clients.
+   - Refined `api_status.lua` to only query active kernel ARP entries (`flags == "0x2"`) on bridge `bdg2` within the `192.168.29.x` subnet, while cross-referencing `wl -i wl1 assoclist` for accurate `5GHz Wi-Fi` vs `Ethernet / LAN` badge assignment.
+
 ## Current status
 
 | Capability | Status |
 |---|---|
 | JCOW411 firmware | R2.3 confirmed |
-| Root shell | confirmed |
-| Telnet across reboot | confirmed |
-| wl0 station capability | confirmed |
-| Upstream Wi-Fi visibility | confirmed |
-| Manual WPA association | confirmed |
-| DHCP on wl0 | confirmed in manual run |
-| NAT/routing to Room B client | confirmed in manual run |
+| Root shell & Telnet | confirmed across reboots |
+| wl0 station capability | confirmed (2.4 GHz dedicated client) |
+| wl1 access point capability | confirmed (5 GHz dedicated AP) |
+| Decoupled JSON configuration | confirmed (`/pfrm2.0/etc/repeater_config.json`) |
+| Next-Gen repeater engine | confirmed (`repeater_engine.sh` with `tiny_json.lua`) |
+| Lighttpd Web UI | confirmed (`/custom/index.html`) |
+| Lua CGI endpoints | confirmed (`api_status`, `api_scan`, `api_connect`, `api_ap_config`) |
+| Client-side PBKDF2-SHA1 | confirmed (in-browser PSK computation) |
+| Connected device monitoring | confirmed (5 GHz Wi-Fi vs Ethernet classification) |
 | Automatic recovery after reboot | confirmed with bounded retry loop |
 
 ## Current operational notes
 
-- Leave firmware and configuration-backup crypto unchanged; they are no longer
-  part of the repeater problem.
-- The router waits roughly two minutes before a successful first connection;
-  this is intentional startup settling, not a failure.
-- The laptop may retain `fd00::1` as an IPv6 DNS server. IPv4 routing works;
-  the script redirects IPv4 DNS to a public resolver. This can cause an
-  occasional DNS delay but did not prevent the final Ethernet-only test.
-- The `artifacts/router-backups` files are recovery material and must remain
-  untracked.
+- The 2.4 GHz physical radio (`wl0`) must remain dedicated strictly to station mode; do not enable local 2.4 GHz access points or secondary SSIDs on `wl0`.
+- The local access point is hosted solely on the 5 GHz radio (`wl1`).
+- The web dashboard is accessible at `http://192.168.29.1/custom/index.html` using login credentials `admin` / `admin123`.
+- Any template configuration files committed to git (`repeater_config.json`) must contain sanitized dummy placeholders rather than real PSKs or SSIDs.
+- The `artifacts/router-backups` files are recovery material and must remain untracked.

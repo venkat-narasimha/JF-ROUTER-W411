@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JCOW411 Gateway & Repeater Control</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 500: '#0284c7', 600: '#0369a1' }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    .pulse-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 min-h-screen transition-colors duration-200">
+
+  <!-- Standalone Fullscreen Login View -->
+  <div id="login-view" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4">
+    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 w-full max-w-sm rounded-2xl p-7 shadow-xl">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold text-base shadow-sm">JF</div>
+        <div>
+          <h2 class="text-base font-bold text-slate-900 dark:text-white">Admin Authentication</h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400">JCOW411 Router Management</p>
+        </div>
+      </div>
+      <form onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Username</label>
+          <input type="text" id="login-user" value="admin" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-900 dark:text-white">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Password</label>
+          <div class="relative">
+            <input type="password" id="login-pass" value="admin123" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-900 dark:text-white">
+            <button type="button" onclick="togglePass('login-pass', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">👁️</button>
+          </div>
+        </div>
+        <div id="login-err" class="text-xs text-rose-500 hidden">Invalid username or password</div>
+        <button type="submit" class="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-medium text-sm rounded-lg transition shadow-sm">
+          Sign In
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- QR Code Modal -->
+  <div id="qr-modal" class="fixed inset-0 z-40 hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm" onclick="closeQrModal(event)">
+    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-2xl text-center max-w-xs w-full" onclick="event.stopPropagation()">
+      <h3 id="qr-title" class="text-sm font-bold text-slate-900 dark:text-white mb-1">Wi-Fi Easy Connect</h3>
+      <p id="qr-subtitle" class="text-xs text-slate-500 dark:text-slate-400 mb-4">Scan with any phone camera</p>
+      <div id="qrcode-box" class="flex justify-center p-3 bg-white rounded-lg border border-slate-200 dark:border-slate-700 mb-4 inline-block mx-auto"></div>
+      <button onclick="document.getElementById('qr-modal').classList.add('hidden')" class="w-full py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition">
+        Close
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Dashboard App Wrapper (Hidden when unauthenticated) -->
+  <div id="dashboard-app" class="hidden">
+    <!-- Top Navigation Bar -->
+    <nav class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-30 shadow-sm">
+      <div class="w-full px-6 py-3 flex justify-between items-center">
+        <div class="flex items-center gap-6">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-sky-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">JF</div>
+            <div>
+              <span class="font-bold text-sm text-slate-900 dark:text-white tracking-tight">JCOW411 Gateway</span>
+              <span class="ml-2 text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded font-mono">Repeater NG</span>
+            </div>
+          </div>
+
+          <!-- Main App Navigation Tabs -->
+          <div class="hidden md:flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-1 rounded-lg border border-slate-200 dark:border-slate-600 text-xs font-semibold">
+            <button onclick="switchMainTab('dashboard')" id="nav-tab-dashboard" class="px-3.5 py-1.5 rounded-md bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-sm transition">
+              📊 Overview & Devices
+            </button>
+            <button onclick="switchMainTab('repeater')" id="nav-tab-repeater" class="px-3.5 py-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition">
+              📡 Upstream Repeater
+            </button>
+            <button onclick="switchMainTab('ap')" id="nav-tab-ap" class="px-3.5 py-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition">
+              📶 Local Wi-Fi APs
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <div id="status-badge" class="flex items-center gap-2 bg-slate-100 dark:bg-slate-700/60 px-3 py-1.5 rounded-full text-xs border border-slate-200 dark:border-slate-600">
+            <span id="status-dot" class="pulse-dot bg-amber-500 animate-pulse"></span>
+            <span id="status-text" class="font-medium text-slate-600 dark:text-slate-300">Checking...</span>
+          </div>
+          <button onclick="toggleTheme()" class="p-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition" title="Toggle Theme">
+            <span id="theme-icon">🌙</span>
+          </button>
+          <button onclick="handleLogout()" class="text-xs text-slate-500 hover:text-rose-500 font-medium transition">
+            Exit
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile Tab Bar -->
+      <div class="flex md:hidden px-4 py-2 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 text-xs font-semibold justify-around">
+        <button onclick="switchMainTab('dashboard')" id="m-nav-tab-dashboard" class="text-sky-600 dark:text-sky-400">Overview</button>
+        <button onclick="switchMainTab('repeater')" id="m-nav-tab-repeater" class="text-slate-500">Repeater</button>
+        <button onclick="switchMainTab('ap')" id="m-nav-tab-ap" class="text-slate-500">Local Wi-Fi</button>
+      </div>
+    </nav>
+
+    <!-- Full-Width Content Container -->
+    <main class="w-full px-6 py-6">
+
+      <!-- ================= TAB 1: OVERVIEW & CONNECTED DEVICES ================= -->
+      <div id="tab-pane-dashboard" class="space-y-6">
+        <!-- Two Hardware Status Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Upstream Status Card -->
+          <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+            <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 dark:border-slate-700/60">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Upstream Station (wl0 &bull; 2.4GHz)</span>
+              <span id="disp-up-badge" class="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">STANDBY</span>
+            </div>
+            <div class="space-y-2.5 text-xs">
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Connected Wi-Fi:</span>
+                <span id="disp-upstream-ssid" class="font-semibold text-slate-900 dark:text-white truncate max-w-[200px]">-</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Target BSSID:</span>
+                <span id="disp-upstream-bssid" class="font-mono text-slate-700 dark:text-slate-300">-</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Router IP:</span>
+                <span id="disp-upstream-ip" class="font-mono font-semibold text-sky-600 dark:text-sky-400">-</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Signal (RSSI):</span>
+                <span id="disp-upstream-rssi" class="font-bold text-emerald-600 dark:text-emerald-400">- dBm</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Gateway Route:</span>
+                <span id="disp-upstream-gw" class="font-semibold">-</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5GHz AP Card -->
+          <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+            <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 dark:border-slate-700/60">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Local Wi-Fi AP (wl1 &bull; 5GHz Dedicated)</span>
+              <button onclick="showQrModal()" class="px-2 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition text-xs font-semibold flex items-center gap-1" title="Show Wi-Fi QR Code">
+                <span>📷</span> <span>QR Code</span>
+              </button>
+            </div>
+            <div class="space-y-2.5 text-xs">
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Local SSID:</span>
+                <span id="disp-local-5g-ssid" class="font-semibold text-slate-900 dark:text-white truncate max-w-[200px]">-</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Broadcast:</span>
+                <span id="disp-local-5g-hidden" class="font-medium">-</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Active Wi-Fi Clients:</span>
+                <span id="disp-local-5g-clients-count" class="font-bold text-sky-600 dark:text-sky-400">0</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Radio Band:</span>
+                <span class="font-semibold text-indigo-600 dark:text-indigo-400">5GHz AC/N (Dedicated AP)</span>
+              </div>
+              <div class="flex justify-between py-1">
+                <span class="text-slate-500 dark:text-slate-400">Interface:</span>
+                <span class="font-mono text-slate-700 dark:text-slate-300">wl1 (br-lan / bdg2)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full-Width Connected Devices Table -->
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h2 class="text-sm font-bold text-slate-900 dark:text-white">Active Connected Devices</h2>
+              <p class="text-xs text-slate-500 dark:text-slate-400">Real-time associated clients with Band, IP and Hostname</p>
+            </div>
+            <span id="active-client-badge" class="text-xs bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-full font-bold text-sky-600 dark:text-sky-400">0 Devices</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-[11px] uppercase bg-slate-50 dark:bg-slate-900/40 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                <tr>
+                  <th class="py-2.5 px-4">Device Hostname</th>
+                  <th class="py-2.5 px-4">IP Address</th>
+                  <th class="py-2.5 px-4">MAC Address</th>
+                  <th class="py-2.5 px-4">Connected Band</th>
+                </tr>
+              </thead>
+              <tbody id="clients-tbody" class="divide-y divide-slate-100 dark:divide-slate-700/60">
+                <tr>
+                  <td colspan="4" class="py-6 text-center text-slate-400">No active clients connected</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= TAB 2: UPSTREAM REPEATER MANAGEMENT ================= -->
+      <div id="tab-pane-repeater" class="hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <!-- Left: Site Survey Scanner (7 cols) -->
+          <div class="lg:col-span-7 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm flex flex-col justify-between">
+            <div>
+              <div class="flex flex-wrap justify-between items-center gap-2 mb-4 pb-2 border-b border-slate-100 dark:border-slate-700/60">
+                <div>
+                  <h2 class="text-sm font-bold text-slate-900 dark:text-white">Spectrum Site Survey</h2>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">Nearby detected 2.4GHz Wi-Fi networks</p>
+                </div>
+                <button id="btn-scan" onclick="triggerScan()" class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg flex items-center gap-2 transition shadow-sm">
+                  <svg id="scan-spinner" class="hidden animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                  </svg>
+                  <span id="scan-btn-text">Survey Spectrum</span>
+                </button>
+              </div>
+
+              <div id="networks-container" class="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                <div class="text-center py-8 text-slate-400 text-xs">Click "Survey Spectrum" to scan nearby networks</div>
+              </div>
+            </div>
+
+            <div id="saved-networks-section" class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/60 hidden">
+              <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">⭐ Saved Wi-Fi Profiles</span>
+              <div id="saved-networks-list" class="flex flex-wrap gap-2"></div>
+            </div>
+          </div>
+
+          <!-- Right: Connect Form (5 cols) -->
+          <div class="lg:col-span-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+            <h2 class="text-sm font-bold text-slate-900 dark:text-white mb-1">Associate Upstream Network</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Click a scanned network or type details manually</p>
+
+            <form id="connect-form" onsubmit="handleConnect(event)" class="space-y-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Target Network Name (SSID)</label>
+                <input type="text" id="target-ssid" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500" placeholder="e.g. MyWiFi">
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">BSSID / MAC <span class="text-slate-400 font-normal">(Optional for hidden)</span></label>
+                <input type="text" id="target-bssid" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500" placeholder="Auto-resolved if empty">
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Wi-Fi Password (WPA2)</label>
+                <div class="relative">
+                  <input type="password" id="target-passphrase" required minlength="8" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500" placeholder="Min 8 characters">
+                  <button type="button" onclick="togglePass('target-passphrase', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">👁️</button>
+                </div>
+              </div>
+
+              <div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                <span id="crypto-status" class="text-xs text-slate-400">Ready</span>
+                <button type="submit" id="btn-connect" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition shadow-sm">
+                  Connect Network
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= TAB 3: LOCAL WI-FI ACCESS POINT (5GHz DEDICATED) ================= -->
+      <div id="tab-pane-ap" class="hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <!-- Left: Configure Form (7 cols) -->
+          <div class="lg:col-span-7 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+            <div class="flex justify-between items-center mb-4 pb-2 border-b border-slate-100 dark:border-slate-700/60">
+              <div>
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white">Local Wi-Fi Access Point (5GHz)</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">High-speed 5GHz AC/N broadcast on dedicated radio (wl1)</p>
+              </div>
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">5GHz Dedicated (wl1)</span>
+            </div>
+
+            <form id="ap-form" onsubmit="handleAPConfig(event)" class="space-y-4">
+              <input type="hidden" id="ap-band" value="5g">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label id="ap-ssid-label" class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Wi-Fi Name (SSID) - 5GHz</label>
+                  <input type="text" id="ap-ssid" required class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">New Wi-Fi Password (WPA2)</label>
+                  <div class="relative">
+                    <input type="password" id="ap-passphrase" minlength="8" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 pr-10 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500" placeholder="Min 8 characters (leave blank to keep current)">
+                    <button type="button" onclick="togglePass('ap-passphrase', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">👁️</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <input type="checkbox" id="ap-hidden" class="rounded border-slate-300 dark:border-slate-700 text-sky-600 focus:ring-0">
+                <label for="ap-hidden" class="text-xs text-slate-600 dark:text-slate-300 select-none">Hide Wi-Fi Name (Closed Broadcast)</label>
+              </div>
+
+              <div class="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                <span id="ap-save-status" class="text-xs text-slate-400">Ready</span>
+                <button type="submit" id="btn-save-ap" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold rounded-lg transition shadow-sm">
+                  Save & Apply Settings
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Right: Live AP Card & Quick QR (5 cols) -->
+          <div class="lg:col-span-5 space-y-4">
+            <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+              <div class="flex justify-between items-center mb-3">
+                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Quick Wi-Fi QR Access</h3>
+                <span class="text-[11px] text-slate-400">Instant Phone Connect</span>
+              </div>
+              <button type="button" onclick="showQrModal()" class="w-full p-4 bg-slate-50 dark:bg-slate-900/60 hover:bg-sky-50 dark:hover:bg-slate-700/40 border border-slate-200 dark:border-slate-700 rounded-xl text-center transition flex items-center justify-center gap-3">
+                <div class="text-3xl">📱</div>
+                <div class="text-left">
+                  <div class="font-bold text-xs text-slate-900 dark:text-white">Show 5GHz Wi-Fi QR Code</div>
+                  <div class="text-[10px] text-slate-400">Scan to connect mobile devices instantly (wl1)</div>
+                </div>
+              </button>
+            </div>
+
+            <div class="bg-slate-100/70 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 text-xs text-slate-500 dark:text-slate-400 space-y-2">
+              <div class="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <span>💡</span> <span>Radio Allocation Architecture</span>
+              </div>
+              <p>&bull; <strong>5GHz Radio (wl1)</strong>: Dedicated solely to local AP broadcast for smartphones, laptops, and devices with high-speed AC performance.</p>
+              <p>&bull; <strong>2.4GHz Radio (wl0)</strong>: Dedicated solely to the Upstream Repeater client. Keeping 2.4GHz local AP disabled avoids radio loopback and guarantees an uninterrupted upstream connection.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+    </main>
+  </div> <!-- End #dashboard-app -->
+
+  <script>
+    const API_BASE = '/cgi-bin';
+    let currentApInfo = { '5g': {}, '2g': {} };
+    let savedNetworksCache = [];
+
+    // --- Tab Switching ---
+    function switchMainTab(tab) {
+      const panes = ['dashboard', 'repeater', 'ap'];
+      panes.forEach(p => {
+        document.getElementById(`tab-pane-${p}`).classList.add('hidden');
+        const deskBtn = document.getElementById(`nav-tab-${p}`);
+        if (deskBtn) deskBtn.className = 'px-3.5 py-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition';
+        const mobBtn = document.getElementById(`m-nav-tab-${p}`);
+        if (mobBtn) mobBtn.className = 'text-slate-500';
+      });
+
+      document.getElementById(`tab-pane-${tab}`).classList.remove('hidden');
+      const activeDeskBtn = document.getElementById(`nav-tab-${tab}`);
+      if (activeDeskBtn) activeDeskBtn.className = 'px-3.5 py-1.5 rounded-md bg-white dark:bg-slate-800 text-sky-600 dark:text-sky-400 shadow-sm transition';
+      const activeMobBtn = document.getElementById(`m-nav-tab-${tab}`);
+      if (activeMobBtn) activeMobBtn.className = 'text-sky-600 dark:text-sky-400 font-bold';
+    }
+
+    // --- Authentication ---
+    function checkAuth() {
+      if (sessionStorage.getItem('jf_auth') === '1') {
+        document.getElementById('login-view').classList.add('hidden');
+        document.getElementById('dashboard-app').classList.remove('hidden');
+      } else {
+        document.getElementById('login-view').classList.remove('hidden');
+        document.getElementById('dashboard-app').classList.add('hidden');
+      }
+    }
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('login-user').value.trim();
+      const p = document.getElementById('login-pass').value;
+      const storedUser = localStorage.getItem('jf_admin_user') || 'admin';
+      const storedPass = localStorage.getItem('jf_admin_pass') || 'admin123';
+
+      if (u === storedUser && p === storedPass) {
+        sessionStorage.setItem('jf_auth', '1');
+        document.getElementById('login-view').classList.add('hidden');
+        document.getElementById('dashboard-app').classList.remove('hidden');
+        document.getElementById('login-err').classList.add('hidden');
+      } else {
+        document.getElementById('login-err').classList.remove('hidden');
+      }
+    }
+
+    function handleLogout() {
+      sessionStorage.removeItem('jf_auth');
+      checkAuth();
+    }
+
+    // --- Theme Toggle ---
+    function initTheme() {
+      const saved = localStorage.getItem('jf_theme') || 'light';
+      if (saved === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.getElementById('theme-icon').textContent = '☀️';
+      } else {
+        document.documentElement.classList.remove('dark');
+        document.getElementById('theme-icon').textContent = '🌙';
+      }
+    }
+
+    function toggleTheme() {
+      if (document.documentElement.classList.contains('dark')) {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('jf_theme', 'light');
+        document.getElementById('theme-icon').textContent = '🌙';
+      } else {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('jf_theme', 'dark');
+        document.getElementById('theme-icon').textContent = '☀️';
+      }
+    }
+
+    // --- Password Toggle ---
+    function togglePass(id, btn) {
+      const el = document.getElementById(id);
+      if (el.type === 'password') {
+        el.type = 'text';
+        btn.textContent = '🔒';
+      } else {
+        el.type = 'password';
+        btn.textContent = '👁️';
+      }
+    }
+
+    // --- Wi-Fi QR Code Modal ---
+    function showQrModal() {
+      const ap = currentApInfo['5g'] || {};
+      const ssid = ap.ssid || 'JioFiber_5G';
+      const hidden = ap.hidden ? 'true' : 'false';
+      const pass = ap.passphrase || '';
+
+      document.getElementById('qr-title').textContent = `5GHz Wi-Fi QR Code`;
+      document.getElementById('qr-subtitle').textContent = `SSID: ${ssid} ${ap.hidden ? '(Hidden)' : ''}`;
+
+      const qrData = `WIFI:T:WPA;S:${ssid};P:${pass};H:${hidden};;`;
+      const box = document.getElementById('qrcode-box');
+      box.innerHTML = '';
+      new QRCode(box, {
+        text: qrData,
+        width: 180,
+        height: 180,
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      document.getElementById('qr-modal').classList.remove('hidden');
+    }
+
+    function closeQrModal(e) {
+      document.getElementById('qr-modal').classList.add('hidden');
+    }
+
+    // --- PBKDF2 Implementation ---
+    function rotl(n, s) { return (n << s) | (n >>> (32 - s)); }
+    function sha1Block(H, W) {
+      let [a, b, c, d, e] = H;
+      for (let t = 0; t < 80; t++) {
+        let f, k;
+        if (t < 20) { f = (b & c) | ((~b) & d); k = 0x5A827999; }
+        else if (t < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+        else if (t < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+        else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+        let temp = (rotl(a, 5) + f + e + k + W[t]) >>> 0;
+        e = d; d = c; c = rotl(b, 30) >>> 0; b = a; a = temp;
+      }
+      H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0; H[2] = (H[2] + c) >>> 0;
+      H[3] = (H[3] + d) >>> 0; H[4] = (H[4] + e) >>> 0;
+    }
+
+    function coreSha1(words, len) {
+      words[len >> 5] |= 0x80 << (24 - len % 32);
+      words[(((len + 64) >> 9) << 4) + 15] = len;
+      let W = new Array(80), H = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0];
+      for (let i = 0; i < words.length; i += 16) {
+        for (let t = 0; t < 16; t++) W[t] = words[i + t] || 0;
+        for (let t = 16; t < 80; t++) W[t] = rotl(W[t - 3] ^ W[t - 8] ^ W[t - 14] ^ W[t - 16], 1);
+        sha1Block(H, W);
+      }
+      return H;
+    }
+
+    function hmacSha1(keyBytes, textBytes) {
+      let kWords = [];
+      for (let i = 0; i < keyBytes.length; i++) kWords[i >> 2] |= (keyBytes[i] & 0xFF) << (24 - (i % 4) * 8);
+      if (keyBytes.length > 64) kWords = coreSha1(kWords, keyBytes.length * 8);
+      let ipad = new Array(16).fill(0x36363636), opad = new Array(16).fill(0x5C5C5C5C);
+      for (let i = 0; i < 16; i++) {
+        let kw = kWords[i] || 0;
+        ipad[i] ^= kw; opad[i] ^= kw;
+      }
+      let tWords = [];
+      for (let i = 0; i < textBytes.length; i++) tWords[i >> 2] |= (textBytes[i] & 0xFF) << (24 - (i % 4) * 8);
+      let inner = coreSha1(ipad.concat(tWords), 512 + textBytes.length * 8);
+      let outer = coreSha1(opad.concat(inner), 512 + 160);
+      let res = new Uint8Array(20);
+      for (let i = 0; i < 20; i++) res[i] = (outer[i >> 2] >> (24 - (i % 4) * 8)) & 0xFF;
+      return res;
+    }
+
+    function fallbackPbkdf2Sha1(passphrase, ssid) {
+      const enc = new TextEncoder();
+      const passBytes = enc.encode(passphrase);
+      const ssidBytes = enc.encode(ssid);
+      const out = new Uint8Array(32);
+
+      for (let block = 1; block <= 2; block++) {
+        let saltBlock = new Uint8Array(ssidBytes.length + 4);
+        saltBlock.set(ssidBytes);
+        saltBlock[ssidBytes.length + 3] = block;
+
+        let U = hmacSha1(passBytes, saltBlock);
+        let T = new Uint8Array(U);
+
+        for (let iter = 1; iter < 4096; iter++) {
+          U = hmacSha1(passBytes, U);
+          for (let i = 0; i < 20; i++) T[i] ^= U[i];
+        }
+
+        const offset = (block - 1) * 20;
+        const len = Math.min(20, 32 - offset);
+        for (let i = 0; i < len; i++) out[offset + i] = T[i];
+      }
+
+      return Array.from(out).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function computeWpaPsk(ssid, passphrase) {
+      if (window.crypto && window.crypto.subtle && window.crypto.subtle.importKey) {
+        try {
+          const enc = new TextEncoder();
+          const passBuffer = enc.encode(passphrase);
+          const ssidBuffer = enc.encode(ssid);
+
+          const keyMaterial = await window.crypto.subtle.importKey(
+            'raw', passBuffer, { name: 'PBKDF2' }, false, ['deriveBits']
+          );
+          const derivedBits = await window.crypto.subtle.deriveBits(
+            { name: 'PBKDF2', salt: ssidBuffer, iterations: 4096, hash: 'SHA-1' },
+            keyMaterial, 256
+          );
+          return Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (_) {
+          return fallbackPbkdf2Sha1(passphrase, ssid);
+        }
+      } else {
+        return fallbackPbkdf2Sha1(passphrase, ssid);
+      }
+    }
+
+    // --- Update Status ---
+    async function updateStatus() {
+      try {
+        const res = await fetch(`${API_BASE}/api_status.cgi`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const json = await res.json();
+        if (json.status !== 'success' || !json.data) return;
+
+        const data = json.data;
+        const up = data.upstream || {};
+
+        document.getElementById('disp-upstream-ssid').textContent = up.ssid || '-';
+        document.getElementById('disp-upstream-bssid').textContent = up.bssid || '-';
+        document.getElementById('disp-upstream-ip').textContent = up.ip || 'No Lease';
+        document.getElementById('disp-upstream-rssi').textContent = (up.rssi || 0) + ' dBm';
+        document.getElementById('disp-upstream-gw').textContent = up.gateway_online ? 'Reachable' : 'Unreachable';
+
+        const stateBadge = document.getElementById('disp-up-badge');
+        stateBadge.textContent = up.state || 'STANDBY';
+        if (up.state === 'COMPLETED' && up.gateway_online) {
+          stateBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+          document.getElementById('status-dot').className = 'pulse-dot bg-emerald-500';
+          document.getElementById('status-text').textContent = 'Online';
+        } else {
+          stateBadge.className = 'text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
+          document.getElementById('status-dot').className = 'pulse-dot bg-amber-500 animate-pulse';
+          document.getElementById('status-text').textContent = up.state || 'Connecting';
+        }
+
+        // Cache 5GHz AP stats
+        const ap5 = data.local_ap_5g || {};
+        currentApInfo['5g'] = ap5;
+        document.getElementById('disp-local-5g-ssid').textContent = ap5.ssid || '-';
+        document.getElementById('disp-local-5g-hidden').textContent = ap5.hidden ? 'Hidden' : 'Visible';
+        document.getElementById('disp-local-5g-clients-count').textContent = ap5.connected_client_count || 0;
+
+        const ssidInput = document.getElementById('ap-ssid');
+        if (!ssidInput.value) {
+          ssidInput.value = ap5.ssid || '';
+          document.getElementById('ap-hidden').checked = ap5.hidden || false;
+        }
+
+        if (data.saved_networks && data.saved_networks.length > 0) {
+          savedNetworksCache = data.saved_networks;
+          renderSavedNetworks();
+        }
+
+        renderConnectedClients(data.active_clients || []);
+      } catch (err) {
+        document.getElementById('status-dot').className = 'pulse-dot bg-rose-500';
+        document.getElementById('status-text').textContent = 'Offline';
+      }
+    }
+
+    function renderConnectedClients(clients) {
+      const badge = document.getElementById('active-client-badge');
+      const tbody = document.getElementById('clients-tbody');
+      badge.textContent = `${clients.length} Device${clients.length === 1 ? '' : 's'}`;
+
+      if (clients.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-400">No active clients connected</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      clients.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition';
+        const is5G = c.band && (c.band === '5GHz' || c.band.includes('5G'));
+        const is2G = c.band && (c.band === '2.4GHz' || c.band.includes('2.4G') || c.band.includes('2G'));
+        const bandBadge = is5G 
+          ? '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">5GHz Wi-Fi</span>'
+          : (is2G 
+            ? '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">2.4GHz Wi-Fi</span>'
+            : '<span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300">Ethernet / LAN</span>');
+
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-medium text-slate-900 dark:text-white flex items-center gap-2">
+            <span>${c.band.includes('Wi-Fi') || is5G || is2G ? '📱' : '💻'}</span>
+            <span>${escapeHtml(c.hostname)}</span>
+          </td>
+          <td class="py-3 px-4 font-mono text-sky-600 dark:text-sky-400">${c.ip}</td>
+          <td class="py-3 px-4 font-mono text-slate-500 dark:text-slate-400">${c.mac}</td>
+          <td class="py-3 px-4">${bandBadge}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderSavedNetworks() {
+      const section = document.getElementById('saved-networks-section');
+      const list = document.getElementById('saved-networks-list');
+      if (savedNetworksCache.length === 0) {
+        section.classList.add('hidden');
+        return;
+      }
+
+      section.classList.remove('hidden');
+      list.innerHTML = '';
+      savedNetworksCache.forEach(net => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'px-2.5 py-1 text-xs bg-slate-50 dark:bg-slate-900 hover:bg-sky-50 dark:hover:bg-slate-700/60 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition';
+        btn.innerHTML = `<span>📶 ${escapeHtml(net.ssid)}</span>`;
+        btn.onclick = () => {
+          document.getElementById('target-ssid').value = net.ssid;
+          document.getElementById('target-bssid').value = net.bssid || '';
+          if (net.raw_password) {
+            document.getElementById('target-passphrase').value = net.raw_password;
+          }
+          document.getElementById('crypto-status').textContent = 'Profile loaded';
+        };
+        list.appendChild(btn);
+      });
+    }
+
+    // --- Survey Scan ---
+    async function triggerScan() {
+      const btn = document.getElementById('btn-scan');
+      const spinner = document.getElementById('scan-spinner');
+      const btnText = document.getElementById('scan-btn-text');
+      const container = document.getElementById('networks-container');
+
+      btn.disabled = true;
+      spinner.classList.remove('hidden');
+      btnText.textContent = 'Surveying...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api_scan.cgi`);
+        const json = await res.json();
+
+        if (json.status !== 'success' || !json.networks || json.networks.length === 0) {
+          container.innerHTML = '<div class="text-center py-6 text-slate-400 text-xs">No active broadcasts detected.</div>';
+          return;
+        }
+
+        container.innerHTML = '';
+        json.networks.forEach(net => {
+          const div = document.createElement('div');
+          div.className = 'flex justify-between items-center p-2.5 bg-slate-50 dark:bg-slate-900/60 hover:bg-sky-50 dark:hover:bg-slate-700/40 border border-slate-200 dark:border-slate-700/80 rounded-lg cursor-pointer transition';
+          div.onclick = () => selectNetwork(net.ssid, net.bssid);
+
+          const isSaved = savedNetworksCache.some(s => s.ssid === net.ssid);
+
+          div.innerHTML = `
+            <div>
+              <div class="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>${escapeHtml(net.ssid || '<Hidden>')}</span>
+                ${isSaved ? '<span class="text-[10px] text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/40 px-1 py-0.2 rounded">Saved</span>' : ''}
+                <span class="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-200 dark:bg-slate-800 px-1.5 py-0.2 rounded">${net.security}</span>
+              </div>
+              <div class="text-[11px] font-mono text-slate-400 mt-0.5">${net.bssid} &bull; Ch ${net.channel}</div>
+            </div>
+            <div class="text-right">
+              <span class="text-xs font-bold ${net.rssi > -70 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">${net.rssi} dBm</span>
+            </div>
+          `;
+          container.appendChild(div);
+        });
+      } catch (err) {
+        container.innerHTML = `<div class="text-center py-6 text-rose-500 text-xs">Scan failed: ${err.message}</div>`;
+      } finally {
+        btn.disabled = false;
+        spinner.classList.add('hidden');
+        btnText.textContent = 'Survey Spectrum';
+      }
+    }
+
+    function selectNetwork(ssid, bssid) {
+      document.getElementById('target-ssid').value = ssid;
+      document.getElementById('target-bssid').value = bssid;
+
+      const saved = savedNetworksCache.find(s => s.ssid === ssid);
+      if (saved && saved.raw_password) {
+        document.getElementById('target-passphrase').value = saved.raw_password;
+        document.getElementById('crypto-status').textContent = 'Loaded password from saved profile';
+      } else {
+        document.getElementById('target-passphrase').value = '';
+        document.getElementById('target-passphrase').focus();
+      }
+    }
+
+    // --- Upstream Connect ---
+    async function handleConnect(e) {
+      e.preventDefault();
+      const ssid = document.getElementById('target-ssid').value.trim();
+      const bssid = document.getElementById('target-bssid').value.trim();
+      const passphrase = document.getElementById('target-passphrase').value;
+      const statusLbl = document.getElementById('crypto-status');
+      const submitBtn = document.getElementById('btn-connect');
+
+      submitBtn.disabled = true;
+      statusLbl.textContent = 'Computing PSK & associating...';
+
+      try {
+        const pskHex = await computeWpaPsk(ssid, passphrase);
+        statusLbl.textContent = 'Saving network and connecting...';
+
+        const res = await fetch(`${API_BASE}/api_connect.cgi`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ssid: ssid,
+            bssid: bssid,
+            psk_hex: pskHex,
+            raw_password: passphrase
+          })
+        });
+
+        const json = await res.json();
+        if (json.status === 'success') {
+          statusLbl.textContent = 'Connection initiated. Associating...';
+          document.getElementById('target-passphrase').value = '';
+          setTimeout(updateStatus, 4000);
+        } else {
+          statusLbl.textContent = 'Error: ' + (json.message || 'Failed');
+        }
+      } catch (err) {
+        statusLbl.textContent = 'Error: ' + err.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    // --- AP Config ---
+    async function handleAPConfig(e) {
+      e.preventDefault();
+      const band = document.getElementById('ap-band').value;
+      const ssid = document.getElementById('ap-ssid').value.trim();
+      const pass = document.getElementById('ap-passphrase').value;
+      const hidden = document.getElementById('ap-hidden').checked;
+      const submitBtn = document.getElementById('btn-save-ap');
+      const statusLbl = document.getElementById('ap-save-status');
+
+      submitBtn.disabled = true;
+      statusLbl.textContent = 'Applying changes...';
+
+      try {
+        const payload = { band: band, hidden: hidden };
+        if (ssid !== '') payload.ssid = ssid;
+        if (pass !== '') payload.passphrase = pass;
+
+        const res = await fetch(`${API_BASE}/api_ap_config.cgi`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const json = await res.json();
+        if (json.status === 'success') {
+          statusLbl.textContent = `${band.toUpperCase()} settings updated!`;
+          document.getElementById('ap-passphrase').value = '';
+          updateStatus();
+        } else {
+          statusLbl.textContent = 'Failed: ' + (json.message || 'Error');
+        }
+      } catch (err) {
+        statusLbl.textContent = 'Error: ' + err.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag] || tag));
+    }
+
+    // Init
+    checkAuth();
+    initTheme();
+    updateStatus();
+    setInterval(updateStatus, 5000);
+  </script>
+</body>
+</html>

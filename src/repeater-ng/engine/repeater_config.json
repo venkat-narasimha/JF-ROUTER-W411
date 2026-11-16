@@ -1,0 +1,20 @@
+{
+  "upstream": {
+    "ssid": "YourUpstreamSSID",
+    "bssid": "",
+    "psk_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "gateway_ip": "192.168.1.1"
+  },
+  "local_ap_5g": {
+    "iface": "wl1",
+    "ssid": "JioFiber_5G",
+    "passphrase": "",
+    "hidden": false,
+    "enabled": true
+  },
+  "watchdog": {
+    "enabled": true,
+    "interval_sec": 60,
+    "max_fails": 3
+  }
+}
