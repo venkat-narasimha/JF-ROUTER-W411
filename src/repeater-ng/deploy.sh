@@ -24,20 +24,25 @@ if grep -q '"\.html"' "$CONF" 2>/dev/null; then
     /pfrm2.0/bin/lighttpd -f /pfrm2.0/etc/lighttpd.conf -m /pfrm2.0/lib
 fi
 
-# 3. Ensure permissions on scripts
+# 3. Ensure permissions on scripts & purge watchdog
 chmod +x /pfrm2.0/bin/repeater_engine.sh 2>/dev/null || true
-chmod +x /pfrm2.0/bin/watchdog.sh 2>/dev/null || true
+chmod +x /pfrm2.0/bin/set_led.sh 2>/dev/null || true
 chmod +x /pfrm2.0/var/www/cgi-bin/*.cgi 2>/dev/null || true
+rm -f /pfrm2.0/bin/watchdog.sh /tmp/repeater_watchdog.log /tmp/watchdog_fail_count 2>/dev/null || true
+kill -9 $(ps | grep 'watchdog\.sh' | grep -v grep | awk '{print $1}') 2>/dev/null || true
 
 # 4. Update /pfrm2.0/etc/userInit if needed
 USERINIT="/pfrm2.0/etc/userInit"
+# Purge any existing watchdog loops from userInit
+sed -i '/watchdog\.sh/d' "$USERINIT" 2>/dev/null || true
+
 if ! grep -q 'repeater_engine.sh' "$USERINIT" 2>/dev/null; then
     echo "[4/6] Updating userInit hook for persistence..."
-    # Replace old repeater.sh with new repeater_engine.sh & watchdog
     sed -i 's|/bin/sh /pfrm2.0/etc/repeater.sh|/bin/sh /pfrm2.0/bin/repeater_engine.sh|g' "$USERINIT"
-    
-    if ! grep -q 'watchdog.sh' "$USERINIT" 2>/dev/null; then
-        echo "( while true; do sleep 60; /bin/sh /pfrm2.0/bin/watchdog.sh; done ) &" >> "$USERINIT"
+
+    if ! grep -q '7547' "$USERINIT" 2>/dev/null; then
+        echo "killall -9 tr69 tr069 tr69c cwmp 2>/dev/null" >> "$USERINIT"
+        echo "/pfrm2.0/bin/iptables -I OUTPUT -p tcp --dport 7547 -j DROP 2>/dev/null" >> "$USERINIT"
     fi
 fi
 

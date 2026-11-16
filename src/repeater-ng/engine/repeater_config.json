@@ -11,10 +11,5 @@
     "passphrase": "",
     "hidden": false,
     "enabled": true
-  },
-  "watchdog": {
-    "enabled": true,
-    "interval_sec": 60,
-    "max_fails": 3
   }
 }

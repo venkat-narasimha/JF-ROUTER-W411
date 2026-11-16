@@ -71,20 +71,44 @@ for ip, hw_type, flags, hw, dev in arp_out:gmatch("(%d+%.%d+%.%d+%.%d+)%s+(0x%x+
     end
 end
 
--- Parse /var/dhcpd.leases SOLELY for Hostname resolution and IP caching (NEVER to invent active clients)
+-- Load persistent hostname cache from flash (survives reboots)
 local hostnames = {}
 local lease_ips = {}
+local cache_file = "/pfrm2.0/etc/hostnames.json"
+local cf = io.open(cache_file, "r")
+if cf then
+    local cached = json.decode(cf:read("*all"))
+    cf:close()
+    if type(cached) == "table" then
+        for m, n in pairs(cached) do
+            hostnames[m:upper()] = n
+        end
+    end
+end
+
+-- Parse /var/dhcpd.leases SOLELY for Hostname resolution and IP caching
+local dirty_cache = false
 local dhcp_out = run_cmd("cat /var/dhcpd.leases /var/state/dhcp/dhcpd.leases 2>/dev/null")
 for line in dhcp_out:gmatch("[^\r\n]+") do
     local ts, mac, ip, name = line:match("(%d+)%s+([%x:]+)%s+([%d%.]+)%s+([^%s]+)")
     if mac and #mac == 17 and mac ~= "00:00:00:00:00:00" then
         local upper_mac = mac:upper()
-        if name and name ~= "*" and name ~= "" then
+        if name and name ~= "*" and name ~= "" and hostnames[upper_mac] ~= name then
             hostnames[upper_mac] = name
+            dirty_cache = true
         end
         if ip and ip ~= "" and ip:match("^192%.168%.29%.") then
             lease_ips[upper_mac] = ip
         end
+    end
+end
+
+-- Save newly discovered hostnames to flash
+if dirty_cache then
+    local wf = io.open(cache_file, "w")
+    if wf then
+        wf:write(json.encode(hostnames))
+        wf:close()
     end
 end
 

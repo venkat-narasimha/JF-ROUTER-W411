@@ -39,7 +39,7 @@ The JCOW411 features two independent Broadcom physical radios. The architecture 
 | **Engine** | `/pfrm2.0/bin/repeater_engine.sh` | `src/repeater-ng/engine/repeater_engine.sh` | Bounded connection loop, DHCP, NAT & firewall |
 | **Config Helper** | `/pfrm2.0/bin/config_env.lua` | `src/repeater-ng/engine/config_env.lua` | Translates JSON config to shell variables |
 | **JSON Parser** | `/pfrm2.0/bin/tiny_json.lua` | `src/repeater-ng/engine/tiny_json.lua` | Pure-Lua 5.1 JSON encoder/decoder |
-| **Watchdog** | `/pfrm2.0/bin/watchdog.sh` | `src/repeater-ng/engine/watchdog.sh` | Gateway ping watchdog with self-healing |
+| **LED Manager** | `/pfrm2.0/bin/set_led.sh` | `src/repeater-ng/engine/set_led.sh` | Hardware RGB LED driver matching Jio spec |
 | **Status API** | `/pfrm2.0/var/www/cgi-bin/api_status.cgi` | `src/repeater-ng/api/api_status.lua` | Real-time upstream signal, route, and clients |
 | **Scan API** | `/pfrm2.0/var/www/cgi-bin/api_scan.cgi` | `src/repeater-ng/api/api_scan.lua` | Scans 2.4GHz spectrum without own-MAC pollution |
 | **Connect API** | `/pfrm2.0/var/www/cgi-bin/api_connect.cgi` | `src/repeater-ng/api/api_connect.lua` | Persists credentials and initiates uplink |
@@ -76,8 +76,8 @@ cd /pfrm2.0/bin
 wget http://192.168.29.184:8000/src/repeater-ng/engine/tiny_json.lua -O tiny_json.lua
 wget http://192.168.29.184:8000/src/repeater-ng/engine/config_env.lua -O config_env.lua
 wget http://192.168.29.184:8000/src/repeater-ng/engine/repeater_engine.sh -O repeater_engine.sh
-wget http://192.168.29.184:8000/src/repeater-ng/engine/watchdog.sh -O watchdog.sh
-chmod +x repeater_engine.sh watchdog.sh
+wget http://192.168.29.184:8000/src/repeater-ng/engine/set_led.sh -O set_led.sh
+chmod +x repeater_engine.sh set_led.sh
 
 # CGI Endpoints
 cd /pfrm2.0/var/www/cgi-bin
@@ -116,10 +116,55 @@ http://192.168.29.1/custom/index.html
 3. **Local Wi-Fi AP Tab**:
    - Customize 5GHz SSID, hide broadcast, or update WPA2 password.
    - **Wi-Fi QR Code**: Click **Show 5GHz Wi-Fi QR Code** to display a scannable QR code for instant mobile phone connection.
+4. **LED States & Debug Console Tab**:
+   - Comprehensive 8-state hardware LED guide and boot timeline.
+   - 8 one-click copyable emergency/diagnostic terminal commands for instant Telnet troubleshooting.
 
 ---
 
-## 5. API Reference
+## 5. Hardware LED States & Sequences
+
+The front RGB LED (`R_45`, `G_5`, `B_6`) communicates the real-time operational state managed by `/pfrm2.0/bin/set_led.sh`:
+
+| State | LED Color / Pattern | Meaning | Driver Call |
+|---|---|---|---|
+| **Booting** | Solid Red | Engine starting; stopping vendor daemons | `set_led.sh boot` |
+| **Scanning** | Blinking Blue | Performing 2.4GHz spectrum scan (`wl0 scan`) | `set_led.sh scanning` |
+| **Associating** | Solid Blue | WPA 4-way handshake in progress | `set_led.sh associating` |
+| **Obtaining IP** | Blinking Green | DHCP client (`udhcpc`) requesting lease | `set_led.sh obtaining_ip` |
+| **Online** | **Solid Green** | Uplink verified, NAT active, Repeater5 broadcasting | `set_led.sh online` |
+| **Retrying** | Blinking Yellow | Uplink dropped; retry loop executing | `set_led.sh retrying` |
+| **Fatal / Offline** | Blinking Red | All connection attempts exhausted | `set_led.sh fatal` |
+
+---
+
+## 6. Cold Boot Automation (`/pfrm2.0/etc/userInit`)
+
+To ensure 100% hands-off survival after a power outage or cold restart, `/pfrm2.0/etc/userInit` is configured with:
+
+```sh
+# Start Telnet access
+/usr/sbin/telnetd -p 23 &
+
+# Block TR-069 port to prevent stock cloud overwrite
+iptables -I INPUT -p tcp --dport 7547 -j DROP 2>/dev/null
+iptables -I OUTPUT -p tcp --dport 7547 -j DROP 2>/dev/null
+
+# Patch lighttpd to unblock .html serving if needed
+sed -i 's/"\.html"[ \t]*,//g' /pfrm2.0/etc/lighttpd.conf 2>/dev/null
+killall lighttpd 2>/dev/null
+/pfrm2.0/bin/lighttpd -f /pfrm2.0/etc/lighttpd.conf 2>/dev/null &
+
+# Allow vendor boot daemons (appd, ssk) to finish before launching repeater
+(
+    sleep 60
+    /pfrm2.0/bin/repeater_engine.sh >> /tmp/repeater_engine.log 2>&1
+) &
+```
+
+---
+
+## 7. API Reference
 
 All endpoints run as standard CGI scripts under `/cgi-bin/` and output JSON with `Content-Type: application/json`.
 
@@ -198,7 +243,7 @@ Updates local 5GHz AP settings.
 
 ---
 
-## 6. Operational & Security Checklist
+## 8. Operational & Security Checklist
 
 - [x] **No Hardcoded Plaintext Secrets**: Template `repeater_config.json` uses dummy placeholders.
 - [x] **Input Sanitization**: All shell parameters in Lua CGIs are stripped of command-injection meta-characters (`"`, `\`, `` ` ``, `$`, `/`, `&`).

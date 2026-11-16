@@ -42,8 +42,15 @@ if bssid == "" then
     if h then
         local out = h:read("*all")
         h:close()
-        for b in out:gmatch("BSSID:%s*([%x:]+)") do
-            if #b == 17 then bssid = b:upper(); break end
+        local cur_s = nil
+        for line in out:gmatch("[^\r\n]+") do
+            local s = line:match('^SSID:%s+"(.*)"')
+            if s then cur_s = s end
+            local b = line:match('BSSID:%s*([%x:]+)')
+            if b and #b == 17 and cur_s == ssid then
+                bssid = b:upper()
+                break
+            end
         end
     end
 end

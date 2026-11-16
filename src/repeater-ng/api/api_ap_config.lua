@@ -57,6 +57,7 @@ end
 os.execute("killall -9 hostapd 2>/dev/null")
 os.execute("sleep 1")
 os.execute("rm -f /var/run/hostapd/* 2>/dev/null")
+os.execute("ps | grep eapd | grep -v grep >/dev/null || eapd &")
 os.execute("hostapd -B /tmp/wl1_hapd.conf >/dev/null 2>&1")
 os.execute("ifconfig wl0.1 down >/dev/null 2>&1; wl -i wl0.1 bss down >/dev/null 2>&1")
 os.execute("ifconfig wl0.2 down >/dev/null 2>&1; wl -i wl0.2 bss down >/dev/null 2>&1")
@@ -72,11 +73,12 @@ if f then
     f:close()
 end
 
-cur_cfg.local_ap = cur_cfg.local_ap or {}
-cur_cfg.local_ap.iface = "wl1"
-if ssid ~= "" then cur_cfg.local_ap.ssid = ssid end
-if req.hidden ~= nil then cur_cfg.local_ap.hidden = hidden end
-if passphrase ~= "" then cur_cfg.local_ap.passphrase = passphrase end
+cur_cfg.local_ap_5g = cur_cfg.local_ap_5g or cur_cfg.local_ap or {}
+cur_cfg.local_ap_5g.iface = "wl1"
+if ssid ~= "" then cur_cfg.local_ap_5g.ssid = ssid end
+if req.hidden ~= nil then cur_cfg.local_ap_5g.hidden = hidden end
+if passphrase ~= "" then cur_cfg.local_ap_5g.passphrase = passphrase end
+cur_cfg.local_ap = cur_cfg.local_ap_5g
 
 local out_f = io.open(config_path, "w")
 if out_f then
